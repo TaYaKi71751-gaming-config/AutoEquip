@@ -1,0 +1,9 @@
+## Interface: 100007
+## Title: AutoEquip
+## Notes: Automatically equips the best gear based on your spec.
+## Author: Your Name
+## Version: 1.0
+## SavedVariables: AutoEquipDB
+
+AutoEquip.lua
+
