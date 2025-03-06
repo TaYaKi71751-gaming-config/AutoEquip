@@ -32,7 +32,7 @@ local function EquipBestGear()
                         -- If the bag item has a higher item level, equip it
                         if bagItemLevel and bagItemLevel > currentItemLevel then
                             EquipItemByName(bagItemLink)  -- Equip the better item from the bag
-                            print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")")
+                            print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")" .. "Before:" .. itemLink .. "(" .. currentItemLevel .. ")")
                             return -- Stop after equipping the better item (don't look for other upgrades)
                         end
                     end
