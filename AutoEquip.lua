@@ -8,6 +8,12 @@ local function GetItemLevel(itemLink)
     end
     return nil
 end
+local function GetItemEquipLoc(itemLink)
+    if itemLink then
+				    local _,_,_,_,_,_,_,_,itemEquipLoc = GetItemInfo(itemLink)
+								return itemEquipLoc
+				end
+end
 
 -- Function to equip a better item based on item level comparison
 local function EquipBestGear()
@@ -19,6 +25,7 @@ local function EquipBestGear()
         -- If the slot has an item equipped
         if itemLink then
             local currentItemLevel = GetItemLevel(itemLink)
+												local currentItemEquipLoc = GetItemEquipLoc(itemLink)
             
             -- Check all items in the player's bags to see if any item has a higher item level
             for bag = 0, 4 do
@@ -28,9 +35,34 @@ local function EquipBestGear()
                     -- Check if the bag slot has an item and get the item level if valid
                     if bagItemLink then
                         local bagItemLevel = GetItemLevel(bagItemLink)
+																								local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
                         
                         -- If the bag item has a higher item level, equip it
-                        if bagItemLevel and bagItemLevel > currentItemLevel then
+                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel then
+                            EquipItemByName(bagItemLink)  -- Equip the better item from the bag
+																											 print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")" .. "Before:" .. itemLink .. "(" .. currentItemLevel .. ")")
+                            return -- Stop after equipping the better item (don't look for other upgrades)
+                        end
+                    end
+                end
+            end
+								else
+								    local currentItemLevel = 0
+												local currentItemEquipLoc = slotName
+												string.upper(currentItemEquipLoc)
+												currentItemEquipLoc = "INVTYPE_" .. currentItemEquipLoc
+            -- Check all items in the player's bags to see if any item has a higher item level
+            for bag = 0, 4 do
+                for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
+                    local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)  -- Get the item link from the bag slot
+                    
+                    -- Check if the bag slot has an item and get the item level if valid
+                    if bagItemLink then
+                        local bagItemLevel = GetItemLevel(bagItemLink)
+																								local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
+                        
+                        -- If the bag item has a higher item level, equip it
+                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel then
                             EquipItemByName(bagItemLink)  -- Equip the better item from the bag
 																											 print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")" .. "Before:" .. itemLink .. "(" .. currentItemLevel .. ")")
                             return -- Stop after equipping the better item (don't look for other upgrades)
