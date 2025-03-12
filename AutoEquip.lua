@@ -1,4 +1,4 @@
-local slots = {"Head", "Neck", "Shoulder", "Back", "Chest", "Shirt", "Tabard", "Wrist", "Waist", "Legs", "Feet", "Hands", "Finger0", "Finger1", "Trinket0", "Trinket1", "MainHand", "SecondaryHand"}
+local slots = {"Head", "Neck", "Shoulder", "Back", "Chest", "Shirt", "Wrist", "Waist", "Legs", "Feet", "Hands", "Finger0", "Finger1", "Trinket0", "Trinket1", "MainHand", "SecondaryHand"}
 
 -- Function to get item level of a specific item (either equipped or in the bag)
 local function GetItemLevel(itemLink)
