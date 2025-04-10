@@ -14,6 +14,12 @@ local function GetItemEquipLoc(itemLink)
 								return itemEquipLoc
 				end
 end
+local function GetItemRarity(itemLink)
+    if itemLink then
+										 local _,_,itemRarity = GetItemInfo(itemLink)
+										 return itemRarity
+				end
+end
 
 -- Function to equip a better item based on item level comparison
 local function EquipBestGear()
@@ -26,6 +32,7 @@ local function EquipBestGear()
         if itemLink then
             local currentItemLevel = GetItemLevel(itemLink)
 												local currentItemEquipLoc = GetItemEquipLoc(itemLink)
+												local currentItemRarity = GetItemRarity(itemLink)
             
             -- Check all items in the player's bags to see if any item has a higher item level
             for bag = 0, 4 do
@@ -36,9 +43,10 @@ local function EquipBestGear()
                     if bagItemLink then
                         local bagItemLevel = GetItemLevel(bagItemLink)
 																								local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
+																								local bagItemRarity = GetItemRarity(bagItemLink)
                         
                         -- If the bag item has a higher item level, equip it
-                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel then
+                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel and bagItemRarity > 1 then
                             EquipItemByName(bagItemLink)  -- Equip the better item from the bag
 																											 print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")" .. "Before:" .. itemLink .. "(" .. currentItemLevel .. ")")
                             return -- Stop after equipping the better item (don't look for other upgrades)
@@ -60,9 +68,10 @@ local function EquipBestGear()
                     if bagItemLink then
                         local bagItemLevel = GetItemLevel(bagItemLink)
 																								local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
+																								local bagItemRarity = GetItemRarity(bagItemLink)
                         
                         -- If the bag item has a higher item level, equip it
-                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel then
+                        if bagItemLevel and bagItemEquipLoc and currentItemEquipLoc == bagItemEquipLoc and bagItemLevel > currentItemLevel and bagItemRarity > 1 then
                             EquipItemByName(bagItemLink)  -- Equip the better item from the bag
 																											 print("AutoEquip: Equipped " .. bagItemLink .. " (Item level: " .. bagItemLevel .. ")" .. "Before:" .. itemLink .. "(" .. currentItemLevel .. ")")
                             return -- Stop after equipping the better item (don't look for other upgrades)
