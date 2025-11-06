@@ -380,6 +380,8 @@ local function EquipBestFinger()
                         if finger1ItemLevel < bagItemLevel then
                             EquipItemByNameWithPrint(bagItemLink)
                             return
+                        else
+                            return
                         end
                     end
                     if bagItemLevel > finger0ItemLevel then
@@ -435,6 +437,8 @@ local function EquipBestTrinket()
                     elseif trinket1ItemLink and trinket1ItemName == bagItemName then
                         if trinket1ItemName < bagItemLevel then
                             EquipItemByNameWithPrint(bagItemLink)
+                            return
+                        else
                             return
                         end
                     end
