@@ -1,4 +1,4 @@
-## Interface: 100007
+## Interface: 120000
 ## Title: AutoEquip
 ## Notes: Automatically equips the best gear based on your spec.
 ## Author: Your Name
