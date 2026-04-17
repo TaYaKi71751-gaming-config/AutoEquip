@@ -1,554 +1,221 @@
-local slots = { "Head", "Neck", "Shoulder", "Back", "Chest", "Shirt", "Wrist", "Waist", "Legs", "Feet", "Hands",
-    "Finger0", "Finger1", "Trinket0", "Trinket1", "MainHand", "SecondaryHand" }
+-- AutoEquip Addon for World of Warcraft
+-- Automatically equips the best gear from bags based on item level, with special handling for same-named items
 
--- Function to get item level of a specific item (either equipped or in the bag)
-local function GetItemLevel(itemLink)
-    if itemLink then
-        local itemLevel = GetDetailedItemLevelInfo(itemLink)
-        return itemLevel
-    end
-    return nil
-end
-local function GetItemEquipLoc(itemLink)
-    if itemLink then
-        local _, _, _, _, _, _, _, _, itemEquipLoc = GetItemInfo(itemLink)
-        return itemEquipLoc
-    end
-end
-local function GetItemName(itemLink)
-    if itemLink then
-        local itemName = GetItemInfo(itemLink)
-        return itemName
-    end
-end
-local function GetItemRarity(itemLink)
-    if itemLink then
-        local _, _, itemRarity = GetItemInfo(itemLink)
-        return itemRarity
-    end
-end
+local ADDON_NAME = "AutoEquip"
 
-local function EquipItemByNameWithPrint(itemLink)
-    if itemLink then
-        EquipItemByName(itemLink)
-        print("AutoEquip: Equipped item: " .. itemLink)
-    end
+-- Configuration
+local MIN_RARITY = 2  -- Minimum rarity to consider (2 = Uncommon)
+local NUM_BAGS = NUM_BAG_SLOTS or 4  -- Number of bags to scan
+
+-- Slot definitions with equip locations
+local SLOT_DEFINITIONS = {
+    Head = { slot = "HeadSlot", equipLocs = { "INVTYPE_HEAD" } },
+    Neck = { slot = "NeckSlot", equipLocs = { "INVTYPE_NECK" } },
+    Shoulder = { slot = "ShoulderSlot", equipLocs = { "INVTYPE_SHOULDER" } },
+    Back = { slot = "BackSlot", equipLocs = { "INVTYPE_CLOAK" } },
+    Chest = { slot = "ChestSlot", equipLocs = { "INVTYPE_CHEST" } },
+    Wrist = { slot = "WristSlot", equipLocs = { "INVTYPE_WRIST" } },
+    Waist = { slot = "WaistSlot", equipLocs = { "INVTYPE_WAIST" } },
+    Legs = { slot = "LegsSlot", equipLocs = { "INVTYPE_LEGS" } },
+    Feet = { slot = "FeetSlot", equipLocs = { "INVTYPE_FEET" } },
+    Hands = { slot = "HandsSlot", equipLocs = { "INVTYPE_HAND" } },
+    MainHand = { slot = "MainHandSlot", equipLocs = { "INVTYPE_WEAPONMAINHAND", "INVTYPE_2HWEAPON" } },
+    SecondaryHand = { slot = "SecondaryHandSlot", equipLocs = { "INVTYPE_WEAPONOFFHAND", "INVTYPE_SHIELD" } },
+    Finger = { slots = { "Finger0Slot", "Finger1Slot" }, equipLocs = { "INVTYPE_FINGER" }, maxItems = 2, handleSameName = true },
+    Trinket = { slots = { "Trinket0Slot", "Trinket1Slot" }, equipLocs = { "INVTYPE_TRINKET" }, maxItems = 2, handleSameName = true },
+}
+
+-- Utility functions
+local function GetItemInfoSafe(itemLink)
+    if not itemLink then return end
+    local itemName, _, itemRarity, _, _, _, _, _, itemEquipLoc = GetItemInfo(itemLink)
+    local itemLevel = GetDetailedItemLevelInfo(itemLink)
+    return itemName, itemRarity, itemLevel, itemEquipLoc
 end
 
-local function EquipBestHead()
-    -- Placeholder for future head-specific logic if needed
-    local slotID = GetInventorySlotInfo("HeadSlot")
-    local headItemLink = GetInventoryItemLink("player", slotID)
-    local headItemLevel = nil
-    if headItemLink then
-        headItemLevel = GetItemLevel(headItemLink)
+local function IsValidItem(itemLink)
+    local _, itemRarity = GetItemInfoSafe(itemLink)
+    return itemRarity and itemRarity >= MIN_RARITY
+end
+
+local function GetEquippedItem(slotKey)
+    local slotID = GetInventorySlotInfo(slotKey)
+    if not slotID then return end
+    return GetInventoryItemLink("player", slotID)
+end
+
+local function EquipItem(itemLink)
+    if not itemLink then return end
+    EquipItemByName(itemLink)
+    print(ADDON_NAME .. ": Equipped " .. itemLink)
+end
+
+local function CanEquipInSlot(itemEquipLoc, validEquipLocs)
+    for _, loc in ipairs(validEquipLocs) do
+        if itemEquipLoc == loc then
+            return true
+        end
     end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_HEAD" and bagItemRarity > 1 then
-                    if headItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > headItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
+    return false
+end
+
+-- Find the best item in bags for a given slot, with special handling for same-named items
+local function FindBestItemInBags(validEquipLocs, equippedItems, handleSameName)
+    local candidates = {}
+
+    for bag = 0, NUM_BAGS do
+        local numSlots = C_Container.GetContainerNumSlots(bag)
+        for slot = 1, numSlots do
+            local itemLink = C_Container.GetContainerItemLink(bag, slot)
+            if itemLink and IsValidItem(itemLink) then
+                local itemName, _, itemLevel, itemEquipLoc = GetItemInfoSafe(itemLink)
+                if itemLevel and CanEquipInSlot(itemEquipLoc, validEquipLocs) then
+                    table.insert(candidates, { link = itemLink, name = itemName, level = itemLevel })
                 end
+            end
+        end
+    end
+
+    if #candidates == 0 then return end
+
+    -- Sort candidates by level descending
+    table.sort(candidates, function(a, b) return a.level > b.level end)
+
+    if not handleSameName then
+        return candidates[1].link
+    end
+
+    -- Special handling for same-named items (e.g., Finger, Trinket)
+    local equippedNames = {}
+    for _, item in ipairs(equippedItems) do
+        if item.link then
+            local name = GetItemInfoSafe(item.link)
+            if name then
+                equippedNames[name] = (equippedNames[name] or 0) + 1
+            end
+        end
+    end
+
+    -- Prefer items with names not already equipped, or upgrade same-named items
+    for _, candidate in ipairs(candidates) do
+        local count = equippedNames[candidate.name] or 0
+        if count < 2 then  -- Allow up to 2 of same name for dual slots
+            return candidate.link
+        end
+    end
+
+    -- If all slots have same-named items, upgrade the lowest level one
+    return candidates[1].link
+end
+
+-- Equip best item for a single slot
+local function EquipBestForSlot(slotDef)
+    local validEquipLocs = slotDef.equipLocs
+
+    if slotDef.slots then
+        -- Multi-slot items (Finger, Trinket) with same-name handling
+        local equippedItems = {}
+        local hasEmptySlot = false
+        for _, slotKey in ipairs(slotDef.slots) do
+            local itemLink = GetEquippedItem(slotKey)
+            if itemLink then
+                local _, _, itemLevel = GetItemInfoSafe(itemLink)
+                table.insert(equippedItems, { link = itemLink, level = itemLevel or 0 })
+            else
+                table.insert(equippedItems, { link = nil, level = 0 })
+                hasEmptySlot = true
+            end
+        end
+
+        local bestItem = FindBestItemInBags(validEquipLocs, equippedItems, slotDef.handleSameName)
+        if not bestItem then return end
+
+        local bestLevel = select(3, GetItemInfoSafe(bestItem)) or 0
+
+        -- If there's an empty slot, equip the best item there
+        if hasEmptySlot then
+            EquipItem(bestItem)
+            return
+        end
+
+        -- Otherwise, find the slot with the lowest level item and upgrade if better
+        local lowestSlot = 1
+        local lowestLevel = equippedItems[1].level
+        for i = 2, #equippedItems do
+            if equippedItems[i].level < lowestLevel then
+                lowestSlot = i
+                lowestLevel = equippedItems[i].level
+            end
+        end
+
+        if bestLevel > lowestLevel then
+            EquipItem(bestItem)
+        end
+    else
+        -- Single slot items
+        local currentItem = GetEquippedItem(slotDef.slot)
+        local currentLevel = 0
+        if currentItem then
+            _, _, currentLevel = GetItemInfoSafe(currentItem)
+            currentLevel = currentLevel or 0
+        end
+
+        -- If slot is empty, equip the best available item
+        if not currentItem then
+            local equippedItems = { { link = nil, level = 0 } }
+            local bestItem = FindBestItemInBags(validEquipLocs, equippedItems, false)
+            if bestItem then
+                EquipItem(bestItem)
+            end
+            return
+        end
+
+        -- Otherwise, check if we can upgrade
+        local equippedItems = { { link = currentItem, level = currentLevel } }
+        local bestItem = FindBestItemInBags(validEquipLocs, equippedItems, false)
+        if bestItem then
+            local bestLevel = select(3, GetItemInfoSafe(bestItem)) or 0
+            if bestLevel > currentLevel then
+                EquipItem(bestItem)
             end
         end
     end
 end
 
-local function EquipBestNeck()
-    -- Placeholder for future neck-specific logic if needed
-    local slotID = GetInventorySlotInfo("NeckSlot")
-    local neckItemLink = GetInventoryItemLink("player", slotID)
-    local neckItemLevel = nil
-    if neckItemLink then
-        neckItemLevel = GetItemLevel(neckItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_NECK" and bagItemRarity > 1 then
-                    if neckItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > neckItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestShoulder()
-    -- Placeholder for future shoulder-specific logic if needed
-    local slotID = GetInventorySlotInfo("ShoulderSlot")
-    local slotID = GetInventoryItemLink("player", slotID)
-    local shoulderItemLink = GetInventoryItemLink("player", slotID)
-    local shoulderItemLevel = nil
-    if shoulderItemLink then
-        shoulderItemLevel = GetItemLevel(shoulderItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_SHOULDER" and bagItemRarity > 1 then
-                    if shoulderItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > shoulderItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestBack()
-    -- Placeholder for future back-specific logic if needed
-    local slotID = GetInventorySlotInfo("BackSlot")
-    local backItemLink = GetInventoryItemLink("player", slotID)
-    local backItemLevel = nil
-    if backItemLink then
-        backItemLevel = GetItemLevel(backItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_CLOAK" and bagItemRarity > 1 then
-                    if backItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > backItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestChest()
-    -- Placeholder for future chest-specific logic if needed
-    local slotID = GetInventorySlotInfo("ChestSlot")
-    local chestItemLink = GetInventoryItemLink("player", slotID)
-    local chestItemLevel = nil
-    if chestItemLink then
-        chestItemLevel = GetItemLevel(chestItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_CHEST" and bagItemRarity > 1 then
-                    if chestItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > chestItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestWrist()
-    -- Placeholder for future wrist-specific logic if needed
-    local slotID = GetInventorySlotInfo("WristSlot")
-    local wristItemLink = GetInventoryItemLink("player", slotID)
-    local wristItemLevel = nil
-    if wristItemLink then
-        wristItemLevel = GetItemLevel(wristItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_WRIST" and bagItemRarity > 1 then
-                    if wristItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > wristItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestWaist()
-    -- Placeholder for future waist-specific logic if needed
-    local slotID = GetInventorySlotInfo("WaistSlot")
-    local waistItemLink = GetInventoryItemLink("player", slotID)
-    local waistItemLevel = nil
-    if waistItemLink then
-        waistItemLevel = GetItemLevel(waistItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_WAIST" and bagItemRarity > 1 then
-                    if waistItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > waistItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestLegs()
-    -- Placeholder for future legs-specific logic if needed
-    local slotID = GetInventorySlotInfo("LegsSlot")
-    local legsItemLink = GetInventoryItemLink("player", slotID)
-    local legsItemLevel = nil
-    if legsItemLink then
-        legsItemLevel = GetItemLevel(legsItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_LEGS" and bagItemRarity > 1 then
-                    if legsItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > legsItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestFeet()
-    -- Placeholder for future feet-specific logic if needed
-    local slotID = GetInventorySlotInfo("FeetSlot")
-    local feetItemLink = GetInventoryItemLink("player", slotID)
-    local feetItemLevel = nil
-    if feetItemLink then
-        feetItemLevel = GetItemLevel(feetItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_FEET" and bagItemRarity > 1 then
-                    if feetItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > feetItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestHands()
-    -- Placeholder for future hands-specific logic if needed
-    local slotID = GetInventorySlotInfo("HandsSlot")
-    local handsItemLink = GetInventoryItemLink("player", slotID)
-    local handsItemLevel = nil
-    if handsItemLink then
-        handsItemLevel = GetItemLevel(handsItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_HAND" and bagItemRarity > 1 then
-                    if handsItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > handsItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestFinger()
-    -- Placeholder for future finger-specific logic if needed
-    local finger0SlotID = GetInventorySlotInfo("Finger0Slot")
-    local finger0ItemLink = GetInventoryItemLink("player", finger0SlotID)
-    local finger0ItemName = nil
-    local finger0ItemLevel = nil
-    if finger0ItemLink then
-        finger0ItemName = GetItemName(finger0ItemLink)
-        finger0ItemLevel = GetItemLevel(finger0ItemLink)
-    end
-    local finger1SlotID = GetInventorySlotInfo("Finger1Slot")
-    local finger1ItemLink = GetInventoryItemLink("player", finger1SlotID)
-    local finger1ItemName = nil
-    local finger1ItemLevel = nil
-    if finger1ItemLink then
-        finger1ItemName = GetItemName(finger1ItemLink)
-        finger1ItemLevel = GetItemLevel(finger1ItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                local bagItemName = GetItemName(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_FINGER" and bagItemRarity > 1 then
-                    if finger0ItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    elseif finger1ItemLink == nil then
-                        if finger0ItemName == bagItemName then
-                            if finger0ItemLevel < bagItemLevel then
-                                EquipItemByNameWithPrint(bagItemLink)
-                                return
-                            end
-                        else
-                            EquipItemByNameWithPrint(bagItemLink)
-                            return
-                        end
-                    elseif finger1ItemLink and finger1ItemName == bagItemName then
-                        if finger1ItemLevel < bagItemLevel then
-                            EquipItemByNameWithPrint(bagItemLink)
-                            return
-                        else
-                            return
-                        end
-                    end
-                    if bagItemLevel > finger0ItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    elseif bagItemLevel > finger1ItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestTrinket()
-    -- Placeholder for future trinket-specific logic if needed
-    local trinket0SlotID = GetInventorySlotInfo("Trinket0Slot")
-    local trinket0ItemLink = GetInventoryItemLink("player", trinket0SlotID)
-    local trinket0ItemLevel = nil
-    local trinket0ItemName = nil
-    if trinket0ItemLink then
-        trinket0ItemLevel = GetItemLevel(trinket0ItemLink)
-        trinket0ItemName = GetItemName(trinket0ItemLink)
-    end
-    local trinket1SlotID = GetInventorySlotInfo("Trinket1Slot")
-    local trinket1ItemLink = GetInventoryItemLink("player", trinket1SlotID)
-    local trinket1ItemLevel = nil
-    local trinket1ItemName = nil
-    if trinket1ItemLink then
-        trinket1ItemLevel = GetItemLevel(trinket1ItemLink)
-        trinket1ItemName = GetItemName(trinket1ItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                local bagItemRarity = GetItemRarity(bagItemLink)
-                local bagItemName = GetItemName(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_TRINKET" and bagItemRarity > 1 then
-                    if trinket0ItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    elseif trinket1ItemLink == nil then
-                        if trinket0ItemName == bagItemName then
-                            if trinket0ItemLevel < bagItemLevel then
-                                EquipItemByNameWithPrint(bagItemLink)
-                                return
-                            end
-                        end
-                    elseif trinket1ItemLink and trinket1ItemName == bagItemName then
-                        if trinket1ItemName < bagItemLevel then
-                            EquipItemByNameWithPrint(bagItemLink)
-                            return
-                        else
-                            return
-                        end
-                    end
-
-                    if bagItemLevel > trinket0ItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    elseif bagItemLevel > trinket1ItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestMainHand()
-    -- Placeholder for future main hand-specific logic if needed
-    local mainHandItemLink = GetInventorySlotInfo("MainHandSlot")
-    local mainHandItemLevel = nil
-    if mainHandItemLink then
-        mainHandItemLevel = GetItemLevel(mainHandItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_WEAPONMAINHAND" or bagItemEquipLoc == "INVTYPE_2HWEAPON" then
-                    if mainHandItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > mainHandItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function EquipBestSecondaryHand()
-    -- Placeholder for future off hand-specific logic if needed
-    local offHandItemLink = GetInventorySlotInfo("SecondaryHandSlot")
-    local offHandItemLevel = nil
-    if offHandItemLink then
-        offHandItemLevel = GetItemLevel(offHandItemLink)
-    end
-    for bag = 0, 4 do
-        for slotInBag = 1, C_Container.GetContainerNumSlots(bag) do
-            local bagItemLink = C_Container.GetContainerItemLink(bag, slotInBag)
-            if bagItemLink then
-                local bagItemLevel = GetItemLevel(bagItemLink)
-                local bagItemEquipLoc = GetItemEquipLoc(bagItemLink)
-                if bagItemEquipLoc == "INVTYPE_WEAPONOFFHAND" or bagItemEquipLoc == "INVTYPE_SHIELD" then
-                    if offHandItemLink == nil then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                    if bagItemLevel > offHandItemLevel then
-                        EquipItemByNameWithPrint(bagItemLink)
-                        return
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Function to equip a better item based on item level comparison
+-- Main function to equip best gear
 local function EquipBestGear()
-    EquipBestHead()
-    EquipBestNeck()
-    EquipBestShoulder()
-    EquipBestBack()
-    EquipBestChest()
-    EquipBestWrist()
-    EquipBestWaist()
-    EquipBestLegs()
-    EquipBestFeet()
-    EquipBestHands()
-    EquipBestFinger()
-    EquipBestTrinket()
-    EquipBestMainHand()
-    EquipBestSecondaryHand()
-    -- Additional slot-specific functions can be added here
+    for _, slotDef in pairs(SLOT_DEFINITIONS) do
+        EquipBestForSlot(slotDef)
+    end
 end
 
--- Create a frame to listen for the events
+-- Event handling
 local frame = CreateFrame("Frame")
-
--- Register for the relevant events
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("BAG_UPDATE")
 frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 
--- Set the event handler function
-frame:SetScript("OnEvent", function(self, event)
+frame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        -- When the player logs in, check if any better gear is available and equip it
         EquipBestGear()
     elseif event == "BAG_UPDATE" then
-        -- When the bag is updated (e.g., after looting), recheck and equip any better gear
-        EquipBestGear()
+        -- Debounce bag updates to avoid excessive calls
+        C_Timer.After(0.5, EquipBestGear)
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-        -- When the equipment changes, recheck and equip any better gear
-        EquipBestGear()
+        -- Only equip if slot is relevant
+        local slotID = ...
+        for _, slotDef in pairs(SLOT_DEFINITIONS) do
+            if slotDef.slot and GetInventorySlotInfo(slotDef.slot) == slotID then
+                EquipBestForSlot(slotDef)
+                break
+            elseif slotDef.slots then
+                for _, slotKey in ipairs(slotDef.slots) do
+                    if GetInventorySlotInfo(slotKey) == slotID then
+                        EquipBestForSlot(slotDef)
+                        break
+                    end
+                end
+            end
+        end
     end
 end)
